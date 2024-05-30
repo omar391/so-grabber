@@ -8,7 +8,7 @@
             "args": [
                 "libvulkan.so.1"
             ],
-            "program": "/Volumes/Projects/business/AstronLab/omar391/so-grabber/main.go"
+            "program": "${workspaceFolder}/main.go",
         }
     ]
 }

@@ -22,7 +22,7 @@ When running binaries that depend on specific shared libraries, missing dependen
 1. **Clone the Repository**:
     ```sh
     git clone https://github.com/omar391/sofinder.git
-    cd SoFinder
+    cd sofinder
     ```
 
 2. **Build the Project**:
