@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"so-grabber/pkg"
+
+	"github.com/omar391/sofinder/pkg"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 		remove = os.Args[5] == "true"
 	}
 
-	sg, err := pkg.NewSoGrabber(arch, distro, outputDir, "", remove)
+	sg, err := pkg.NewSoFinder(arch, distro, outputDir, "", remove)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

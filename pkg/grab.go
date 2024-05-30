@@ -20,7 +20,7 @@ import (
 
 const defaultContainerName = "so-container"
 
-type SoGrabber struct {
+type SoFinder struct {
 	ctx           context.Context
 	cli           *client.Client
 	containerID   string
@@ -31,7 +31,7 @@ type SoGrabber struct {
 	containerName string
 }
 
-func NewSoGrabber(arch, distro, outputDir, containerName string, remove bool) (*SoGrabber, error) {
+func NewSoFinder(arch, distro, outputDir, containerName string, remove bool) (*SoFinder, error) {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -42,7 +42,7 @@ func NewSoGrabber(arch, distro, outputDir, containerName string, remove bool) (*
 		containerName = defaultContainerName
 	}
 
-	return &SoGrabber{
+	return &SoFinder{
 		ctx:           ctx,
 		cli:           cli,
 		arch:          arch,
@@ -53,7 +53,7 @@ func NewSoGrabber(arch, distro, outputDir, containerName string, remove bool) (*
 	}, nil
 }
 
-func (dm *SoGrabber) Collect(soFileName string) error {
+func (dm *SoFinder) Collect(soFileName string) error {
 	containerID, err := dm.findExistingContainer()
 	if err != nil {
 		return fmt.Errorf("failed to find existing container: %w", err)
@@ -103,7 +103,7 @@ func (dm *SoGrabber) Collect(soFileName string) error {
 	return nil
 }
 
-func (dm *SoGrabber) processLddDependencies(soFilePath string) error {
+func (dm *SoFinder) processLddDependencies(soFilePath string) error {
 	// Get the ldd output
 	err := dm.getLddOutput(soFilePath)
 	if err != nil {
@@ -140,7 +140,7 @@ func (dm *SoGrabber) processLddDependencies(soFilePath string) error {
 	return nil
 }
 
-func (dm *SoGrabber) checkAndDownloadDependencies(dependencies []string) error {
+func (dm *SoFinder) checkAndDownloadDependencies(dependencies []string) error {
 	for _, dep := range dependencies {
 		depPath := filepath.Base(dep)
 		// Check if the dependency already exists on the system
@@ -166,7 +166,7 @@ func (dm *SoGrabber) checkAndDownloadDependencies(dependencies []string) error {
 	return nil
 }
 
-func (dm *SoGrabber) findExistingContainer() (string, error) {
+func (dm *SoFinder) findExistingContainer() (string, error) {
 	filters := filters.NewArgs()
 	filters.Add("name", dm.containerName)
 	containers, err := dm.cli.ContainerList(dm.ctx, container.ListOptions{All: true, Filters: filters})
@@ -179,7 +179,7 @@ func (dm *SoGrabber) findExistingContainer() (string, error) {
 	return "", nil
 }
 
-func (dm *SoGrabber) createContainer() (string, error) {
+func (dm *SoFinder) createContainer() (string, error) {
 	img := getImageName(dm.distro, dm.arch)
 
 	// Pull the selected image
@@ -228,7 +228,7 @@ func getPlatform(arch string) string {
 	return "linux/amd64"
 }
 
-func (dm *SoGrabber) installArchPackages() error {
+func (dm *SoFinder) installArchPackages() error {
 	commands := []string{
 		"pacman -Sy --noconfirm reflector",
 		"reflector --country 'United States' --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist",
@@ -239,7 +239,7 @@ func (dm *SoGrabber) installArchPackages() error {
 	return dm.execCommands(commands)
 }
 
-func (dm *SoGrabber) installUbuntuPackages() error {
+func (dm *SoFinder) installUbuntuPackages() error {
 	commands := []string{
 		"apt-get update",
 		"apt-get install -y build-essential apt-file",
@@ -248,12 +248,12 @@ func (dm *SoGrabber) installUbuntuPackages() error {
 	return dm.execCommands(commands)
 }
 
-func (dm *SoGrabber) getLddOutput(soFilePath string) error {
+func (dm *SoFinder) getLddOutput(soFilePath string) error {
 	lddCmd := fmt.Sprintf("ldd %s > /so_files_archive/ldd_output.txt", soFilePath)
 	return dm.execCommand(lddCmd)
 }
 
-func (dm *SoGrabber) findAndDownloadPackage(soFileName string) (string, error) {
+func (dm *SoFinder) findAndDownloadPackage(soFileName string) (string, error) {
 	var packageCmd string
 	if dm.distro == "arch" {
 		packageCmd = fmt.Sprintf("pkgfile -s %s | awk -F'/' '{print $1}'", soFileName)
@@ -327,7 +327,7 @@ func (dm *SoGrabber) findAndDownloadPackage(soFileName string) (string, error) {
 	return finalSOFilePath, nil
 }
 
-func (dm *SoGrabber) copyAndRenameSOFile(soFileName string) (string, error) {
+func (dm *SoFinder) copyAndRenameSOFile(soFileName string) (string, error) {
 	// Search for the .so file in the extracted directories
 	searchCmd := fmt.Sprintf("find /so_files_archive -name %s", soFileName)
 	soFilePath, err := dm.execCommandOutput(searchCmd)
@@ -374,7 +374,7 @@ func cleanAptFileOutput(output string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-func (dm *SoGrabber) execCommands(cmds []string) error {
+func (dm *SoFinder) execCommands(cmds []string) error {
 	for _, cmd := range cmds {
 		err := dm.execCommand(cmd)
 		if err != nil {
@@ -384,7 +384,7 @@ func (dm *SoGrabber) execCommands(cmds []string) error {
 	return nil
 }
 
-func (dm *SoGrabber) execCommand(cmd string) error {
+func (dm *SoFinder) execCommand(cmd string) error {
 	execIDResp, err := dm.cli.ContainerExecCreate(dm.ctx, dm.containerID, types.ExecConfig{
 		Cmd:          []string{"/bin/sh", "-c", cmd},
 		AttachStdout: true,
@@ -414,7 +414,7 @@ func (dm *SoGrabber) execCommand(cmd string) error {
 	return nil
 }
 
-func (dm *SoGrabber) execCommandOutput(cmd string) (string, error) {
+func (dm *SoFinder) execCommandOutput(cmd string) (string, error) {
 	execIDResp, err := dm.cli.ContainerExecCreate(dm.ctx, dm.containerID, types.ExecConfig{
 		Cmd:          []string{"/bin/sh", "-c", cmd},
 		AttachStdout: true,

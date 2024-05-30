@@ -3,8 +3,9 @@ package pkg_test
 import (
 	"context"
 	"os"
-	"so-grabber/pkg"
 	"testing"
+
+	"github.com/omar391/sofinder/pkg"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -25,7 +26,7 @@ func TestSoGrabber_Collect(t *testing.T) {
 	cleanupContainers(cli, containerName)
 
 	// Create a SoGrabber instance
-	dm, err := pkg.NewSoGrabber("x86_64", "ubuntu", outputDir, containerName, true)
+	dm, err := pkg.NewSoFinder("x86_64", "ubuntu", outputDir, containerName, false)
 	assert.NoError(t, err)
 
 	// Ensure the output directory is clean

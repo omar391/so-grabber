@@ -1,4 +1,4 @@
-module so-grabber
+module github.com/omar391/sofinder
 
 go 1.22.3
 
