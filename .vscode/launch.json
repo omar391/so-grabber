@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "go",
+            "name": "debug grab.go",
+            "request": "launch",
+            "mode": "auto",
+            "args": [
+                "libvulkan.so.1"
+            ],
+            "program": "/Volumes/Projects/business/AstronLab/omar391/so-grabber/main.go"
+        }
+    ]
+}
