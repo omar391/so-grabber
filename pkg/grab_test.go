@@ -14,7 +14,7 @@ import (
 
 func TestSoGrabber_Collect(t *testing.T) {
 	// vars
-	outputDir := "./so_files"
+	outputDir := "../test_so_files"
 	soToCollect := "libvulkan.so.1"
 	containerName := "test_so_container"
 

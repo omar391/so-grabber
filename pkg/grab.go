@@ -344,6 +344,14 @@ func (dm *SoFinder) copyAndRenameSOFile(soFileName string) (string, error) {
 	}
 	resolvedPath = cleanAptFileOutput(strings.TrimSpace(resolvedPath))
 
+	// create the output directory if it doesn't exist
+	err = dm.execCommand("mkdir -p " + dm.outputDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Copy the .so file to the output directory
+
 	// Copy the actual .so file to /so_files_archive
 	finalSOFilePath := fmt.Sprintf("%s/%s", dm.outputDir, soFileName)
 	copyCmd := fmt.Sprintf("cp %s %s", resolvedPath, finalSOFilePath)

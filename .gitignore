@@ -1,1 +1,4 @@
 **/__debug_bin*
+so_files/
+**/*.so
+**/.DS_Store
