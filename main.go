@@ -3,17 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/omar391/sofinder/pkg"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run script.go <so-file-name> [architecture: x86_64|arm64] [distro: ubuntu|arch] [output-directory] [remove-container]")
+		fmt.Println("Usage: go run script.go <so-file-names-in-comma-sep-format> [architecture: x86_64|arm64] [distro: ubuntu|arch] [output-directory] [remove-container]")
 		os.Exit(1)
 	}
 
-	soFileName := os.Args[1]
+	soFileNames := os.Args[1]
 	arch := "x86_64"
 	if len(os.Args) > 2 {
 		arch = os.Args[2]
@@ -37,7 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = sg.Collect(soFileName)
+	err = sg.Collect(strings.Split(soFileNames, ",")...)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

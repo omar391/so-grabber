@@ -53,7 +53,7 @@ func NewSoFinder(arch, distro, outputDir, containerName string, remove bool) (*S
 	}, nil
 }
 
-func (dm *SoFinder) Collect(soFileName string) error {
+func (dm *SoFinder) Collect(soFileNames ...string) error {
 	containerID, err := dm.findExistingContainer()
 	if err != nil {
 		return fmt.Errorf("failed to find existing container: %w", err)
@@ -84,14 +84,16 @@ func (dm *SoFinder) Collect(soFileName string) error {
 	}
 
 	// Find and download the package containing the .so file
-	soFilePath, err := dm.findAndDownloadPackage(soFileName)
-	if err != nil {
-		return fmt.Errorf("failed to download .so file and dependencies: %w", err)
-	}
+	for _, sf := range soFileNames {
+		soFilePath, err := dm.findAndDownloadPackage(sf)
+		if err != nil {
+			return fmt.Errorf("failed to download .so file and dependencies: %w", err)
+		}
 
-	err = dm.processLddDependencies(soFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to process LDD dependencies: %w", err)
+		err = dm.processLddDependencies(soFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to process LDD dependencies: %w", err)
+		}
 	}
 
 	if dm.remove {
