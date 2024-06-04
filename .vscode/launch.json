@@ -6,7 +6,10 @@
             "request": "launch",
             "mode": "auto",
             "args": [
-                "libvulkan.so.1"
+                "libvulkan.so.1",
+                "x86_64",
+                "ubuntu",
+                "./solibs"
             ],
             "program": "${workspaceFolder}/main.go",
         }

@@ -134,7 +134,7 @@ func (dm *SoFinder) processLddDependencies(soFilePath string) error {
 		return fmt.Errorf("failed to copy files from container: %w", err)
 	}
 
-	err = extractTar(content, "./")
+	err = extractTar(content, getRootFolder(dm.outputDir))
 	if err != nil {
 		return fmt.Errorf("failed to extract files: %w", err)
 	}
@@ -353,8 +353,6 @@ func (dm *SoFinder) copyAndRenameSOFile(soFileName string) (string, error) {
 	}
 
 	// Copy the .so file to the output directory
-
-	// Copy the actual .so file to /so_files_archive
 	finalSOFilePath := fmt.Sprintf("%s/%s", dm.outputDir, soFileName)
 	copyCmd := fmt.Sprintf("cp %s %s", resolvedPath, finalSOFilePath)
 	err = dm.execCommand(copyCmd)
@@ -516,4 +514,13 @@ func extractTar(tarContent io.Reader, dest string) error {
 		}
 	}
 	return nil
+}
+
+func getRootFolder(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	if parts[0] == "" {
+		return parts[1]
+	} else {
+		return parts[0] + "/" + parts[1]
+	}
 }
