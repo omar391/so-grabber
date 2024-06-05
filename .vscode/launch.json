@@ -9,7 +9,7 @@
                 "libvulkan.so.1",
                 "x86_64",
                 "ubuntu",
-                "./solibs"
+                "./libs"
             ],
             "program": "${workspaceFolder}/main.go",
         }

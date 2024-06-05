@@ -107,6 +107,7 @@ func (dm *SoFinder) Collect(soFileNames ...string) error {
 
 func (dm *SoFinder) processLddDependencies(soFilePath string) error {
 	// Get the ldd output
+	// TODO: read into string rather than into file
 	err := dm.getLddOutput(soFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to run ldd on %s: %w", soFilePath, err)
@@ -162,7 +163,20 @@ func (dm *SoFinder) checkAndDownloadDependencies(dependencies []string) error {
 				return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
 			}
 		} else {
-			fmt.Printf("Dependency %s already exists on the system, we may not need it, hence ignored.\n", depPath)
+			// Copy the .so file to the output directory
+			finalSOFilePath := fmt.Sprintf("%s/%s", dm.outputDir, depPath)
+			copyCmd := fmt.Sprintf("cp %s %s", dep, finalSOFilePath)
+			err = dm.execCommand(copyCmd)
+			if err != nil {
+				return fmt.Errorf("failed to copy .so file from %s to %s: %w", dep, dm.outputDir, err)
+			}
+
+			// process nested LDD dependencies
+			err = dm.processLddDependencies(dep)
+			if err != nil {
+				return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
+			}
+			// fmt.Printf("Dependency %s already exists on the system, we may not need it, hence ignored.\n", depPath)
 		}
 	}
 	return nil
@@ -521,6 +535,6 @@ func getRootFolder(path string) string {
 	if parts[0] == "" {
 		return parts[1]
 	} else {
-		return parts[0] + "/" + parts[1]
+		return strings.Join(parts[:len(parts)-1], "/")
 	}
 }
