@@ -26,7 +26,7 @@ func TestSoGrabber_Collect(t *testing.T) {
 	cleanupContainers(cli, containerName)
 
 	// Create a SoGrabber instance
-	dm, err := pkg.NewSoFinder("x86_64", "ubuntu", outputDir, containerName, false)
+	dm, err := pkg.NewSoFinder("x86_64", "ubuntu:19.04", outputDir, containerName, false)
 	assert.NoError(t, err)
 
 	// Ensure the output directory is clean

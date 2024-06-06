@@ -26,12 +26,13 @@ type SoFinder struct {
 	containerID   string
 	arch          string
 	distro        string
+	tag           string
 	outputDir     string
 	remove        bool
 	containerName string
 }
 
-func NewSoFinder(arch, distro, outputDir, containerName string, remove bool) (*SoFinder, error) {
+func NewSoFinder(arch, distroWithTag, outputDir, containerName string, remove bool) (*SoFinder, error) {
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -42,14 +43,21 @@ func NewSoFinder(arch, distro, outputDir, containerName string, remove bool) (*S
 		containerName = defaultContainerName
 	}
 
+	d := strings.Split(distroWithTag, ":")
+	tag := d[1]
+	if tag == "" {
+		tag = "latest"
+	}
+
 	return &SoFinder{
 		ctx:           ctx,
 		cli:           cli,
 		arch:          arch,
-		distro:        distro,
+		distro:        d[0],
 		outputDir:     outputDir,
 		remove:        remove,
 		containerName: containerName,
+		tag:           tag,
 	}, nil
 }
 
@@ -196,7 +204,7 @@ func (dm *SoFinder) findExistingContainer() (string, error) {
 }
 
 func (dm *SoFinder) createContainer() (string, error) {
-	img := getImageName(dm.distro, dm.arch)
+	img := dm.distro + ":" + dm.tag
 
 	// Pull the selected image
 	reader, err := dm.cli.ImagePull(dm.ctx, img, image.PullOptions{
@@ -221,19 +229,19 @@ func (dm *SoFinder) createContainer() (string, error) {
 
 // The function `getImageName` returns the corresponding Docker image name based on the provided
 // distribution and architecture.
-func getImageName(distro, arch string) string {
-	switch distro {
-	case "ubuntu":
-		if arch == "arm64" {
-			return "arm64v8/ubuntu"
-		}
-		return "ubuntu"
-	case "arch":
-		return "archlinux"
-	default:
-		return "archlinux"
-	}
-}
+// func getImageName(distro, arch string) string {
+// 	switch distro {
+// 	case "ubuntu":
+// 		if arch == "arm64" {
+// 			return "arm64v8/ubuntu"
+// 		}
+// 		return "ubuntu"
+// 	case "arch":
+// 		return "archlinux"
+// 	default:
+// 		return "archlinux"
+// 	}
+// }
 
 // The function `getPlatform` returns the corresponding platform based on the input architecture
 // string.
@@ -259,7 +267,6 @@ func (dm *SoFinder) installUbuntuPackages() error {
 	commands := []string{
 		"apt-get update",
 		"apt-get install -y build-essential apt-file",
-		"apt-file update",
 	}
 	return dm.execCommands(commands)
 }
