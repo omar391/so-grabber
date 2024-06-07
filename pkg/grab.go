@@ -84,11 +84,7 @@ func (dm *SoFinder) Collect(soFileNames ...string) error {
 	}
 
 	// Install necessary packages based on distro
-	if dm.distro == "arch" {
-		err = dm.installArchPackages()
-	} else if dm.distro == "ubuntu" {
-		err = dm.installUbuntuPackages()
-	}
+	err = dm.installUbuntuPackages()
 	if err != nil {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
@@ -217,17 +213,6 @@ func getPlatform(arch string) string {
 	return "linux/amd64"
 }
 
-func (dm *SoFinder) installArchPackages() error {
-	commands := []string{
-		"pacman -Sy --noconfirm reflector",
-		"reflector --country 'United States' --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist",
-		"pacman -Syu --noconfirm",
-		"pacman -S --noconfirm base-devel pkgfile",
-		"pkgfile --update",
-	}
-	return dm.execCommands(commands)
-}
-
 func (dm *SoFinder) installUbuntuPackages() error {
 	commands := []string{
 		"apt-get update",
@@ -242,12 +227,7 @@ func (dm *SoFinder) getLddOutput(soFilePath string) error {
 }
 
 func (dm *SoFinder) downloadPackage(soFileName string) (string, error) {
-	var packageCmd string
-	if dm.distro == "arch" {
-		packageCmd = fmt.Sprintf("pkgfile -s %s | awk -F'/' '{print $1}'", soFileName)
-	} else if dm.distro == "ubuntu" {
-		packageCmd = fmt.Sprintf("apt-file search %s | awk -F: '{print $1}' | head -1", soFileName)
-	}
+	packageCmd := fmt.Sprintf("apt-file search %s | awk -F: '{print $1}' | head -1", soFileName)
 
 	packageName, err := dm.execCommandOutput(packageCmd)
 	if err != nil {
@@ -259,15 +239,9 @@ func (dm *SoFinder) downloadPackage(soFileName string) (string, error) {
 	}
 
 	var downloadCmd, packageFilePath, copyCmd string
-	if dm.distro == "arch" {
-		downloadCmd = fmt.Sprintf("pacman -Sw --noconfirm %s", packageName)
-		packageFilePath = fmt.Sprintf("/var/cache/pacman/pkg/%s-*.pkg.tar.zst", packageName)
-		copyCmd = fmt.Sprintf("cp %s /so_files_archive/", packageFilePath)
-	} else if dm.distro == "ubuntu" {
-		downloadCmd = fmt.Sprintf("apt-get download %s", packageName)
-		packageFilePath = fmt.Sprintf("/%s_*.deb", packageName)
-		copyCmd = fmt.Sprintf("cp %s /so_files_archive/", packageFilePath)
-	}
+	downloadCmd = fmt.Sprintf("apt-get download %s", packageName)
+	packageFilePath = fmt.Sprintf("/%s_*.deb", packageName)
+	copyCmd = fmt.Sprintf("cp %s /so_files_archive/", packageFilePath)
 
 	err = dm.execCommand("mkdir -p /so_files_archive")
 	if err != nil {
@@ -292,13 +266,8 @@ func (dm *SoFinder) downloadPackage(soFileName string) (string, error) {
 
 	// Extract the copied package file from the archive directory
 	var extractCmd string
-	if dm.distro == "arch" {
-		packageFilePath = fmt.Sprintf("/so_files_archive/%s-*.pkg.tar.zst", packageName)
-		extractCmd = fmt.Sprintf("tar -I zstd -xvf %s -C /so_files_archive", packageFilePath)
-	} else if dm.distro == "ubuntu" {
-		packageFilePath = fmt.Sprintf("/so_files_archive/%s_*.deb", packageName)
-		extractCmd = fmt.Sprintf("dpkg-deb -xv %s /so_files_archive", packageFilePath)
-	}
+	packageFilePath = fmt.Sprintf("/so_files_archive/%s_*.deb", packageName)
+	extractCmd = fmt.Sprintf("dpkg-deb -xv %s /so_files_archive", packageFilePath)
 
 	err = dm.execCommand(extractCmd)
 	if err != nil {
