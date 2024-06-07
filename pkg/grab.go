@@ -185,14 +185,36 @@ func (dm *SoFinder) findExistingContainer() (string, error) {
 func (dm *SoFinder) createContainer() (string, error) {
 	img := dm.distro + ":" + dm.tag
 
-	// Pull the selected image
-	reader, err := dm.cli.ImagePull(dm.ctx, img, image.PullOptions{
-		Platform: getPlatform(dm.arch),
-	})
+	// Check if the image exists locally
+	images, err := dm.cli.ImageList(dm.ctx, image.ListOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to pull image %s: %w", img, err)
+		return "", fmt.Errorf("failed to list images: %w", err)
 	}
-	io.Copy(os.Stdout, reader)
+
+	imageExists := false
+	for _, image := range images {
+		for _, tag := range image.RepoTags {
+			if tag == img {
+				imageExists = true
+				break
+			}
+		}
+		if imageExists {
+			break
+		}
+	}
+
+	// Pull the image only if it doesn't exist locally
+	if !imageExists {
+		reader, err := dm.cli.ImagePull(dm.ctx, img, image.PullOptions{
+			Platform: getPlatform(dm.arch),
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to pull image %s: %w", img, err)
+		}
+		defer reader.Close()
+		io.Copy(os.Stdout, reader)
+	}
 
 	// Create the container
 	resp, err := dm.cli.ContainerCreate(dm.ctx, &container.Config{

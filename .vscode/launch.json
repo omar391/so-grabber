@@ -6,9 +6,9 @@
             "request": "launch",
             "mode": "auto",
             "args": [
-                "libvulkan.so.1,ld.so,libc.so.6,libdl.so.2,libm.so.6,libgcc_s.so.1",
+                "libvk_swiftshader.so,ld.so,libc.so.6,libdl.so.2,libm.so.6,libgcc_s.so.1",
                 "x86_64",
-                "ubuntu",
+                "stocksync-builder",
                 "./libs"
             ],
             "program": "${workspaceFolder}/main.go",
