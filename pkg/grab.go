@@ -30,6 +30,7 @@ type SoFinder struct {
 	outputDir     string
 	remove        bool
 	containerName string
+	output        map[string]string
 }
 
 func NewSoFinder(arch, distroWithTag, outputDir, containerName string, remove bool) (*SoFinder, error) {
@@ -44,9 +45,9 @@ func NewSoFinder(arch, distroWithTag, outputDir, containerName string, remove bo
 	}
 
 	d := strings.Split(distroWithTag, ":")
-	tag := d[1]
-	if tag == "" {
-		tag = "latest"
+	tag := "latest"
+	if len(d) > 1 {
+		tag = d[1]
 	}
 
 	return &SoFinder{
@@ -58,6 +59,7 @@ func NewSoFinder(arch, distroWithTag, outputDir, containerName string, remove bo
 		remove:        remove,
 		containerName: containerName,
 		tag:           tag,
+		output:        make(map[string]string),
 	}, nil
 }
 
@@ -91,17 +93,9 @@ func (dm *SoFinder) Collect(soFileNames ...string) error {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
 
-	// Find and download the package containing the .so file
-	for _, sf := range soFileNames {
-		soFilePath, err := dm.findAndDownloadPackage(sf)
-		if err != nil {
-			return fmt.Errorf("failed to download .so file and dependencies: %w", err)
-		}
-
-		err = dm.processLddDependencies(soFilePath)
-		if err != nil {
-			return fmt.Errorf("failed to process LDD dependencies: %w", err)
-		}
+	err = dm.checkAndDownloadDependencies(soFileNames)
+	if err != nil {
+		return fmt.Errorf("failed to find or download so libs. err: %w", err)
 	}
 
 	if dm.remove {
@@ -154,37 +148,26 @@ func (dm *SoFinder) processLddDependencies(soFilePath string) error {
 func (dm *SoFinder) checkAndDownloadDependencies(dependencies []string) error {
 	for _, dep := range dependencies {
 		depPath := filepath.Base(dep)
-		// Check if the dependency already exists on the system
-		existCmd := fmt.Sprintf("test -f %s", depPath)
-		err := dm.execCommand(existCmd)
+		if _, ok := dm.output[depPath]; ok {
+			continue
+		}
+		soFilePath, err := dm.findAndCopyLocalSoFile(depPath, "/")
 		if err != nil {
-			fmt.Printf("Dependency %s not found, downloading...\n", depPath)
+			fmt.Printf("Dependency %s not found, try to download from apt sources...\n", depPath)
 			// If the dependency is not found, download it
-			soFilePath, err := dm.findAndDownloadPackage(depPath)
+			soFilePath, err = dm.downloadPackage(depPath)
 			if err != nil {
 				return fmt.Errorf("warning: failed to download dependency %s: %v", depPath, err)
 			}
+		}
 
-			// process nested LDD dependencies
-			err = dm.processLddDependencies(soFilePath)
-			if err != nil {
-				return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
-			}
-		} else {
-			// Copy the .so file to the output directory
-			finalSOFilePath := fmt.Sprintf("%s/%s", dm.outputDir, depPath)
-			copyCmd := fmt.Sprintf("cp %s %s", dep, finalSOFilePath)
-			err = dm.execCommand(copyCmd)
-			if err != nil {
-				return fmt.Errorf("failed to copy .so file from %s to %s: %w", dep, dm.outputDir, err)
-			}
+		// store this so file
+		dm.output[depPath] = soFilePath
 
-			// process nested LDD dependencies
-			err = dm.processLddDependencies(dep)
-			if err != nil {
-				return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
-			}
-			// fmt.Printf("Dependency %s already exists on the system, we may not need it, hence ignored.\n", depPath)
+		// process nested LDD dependencies
+		err = dm.processLddDependencies(soFilePath)
+		if err != nil {
+			return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
 		}
 	}
 	return nil
@@ -227,24 +210,6 @@ func (dm *SoFinder) createContainer() (string, error) {
 	return resp.ID, nil
 }
 
-// The function `getImageName` returns the corresponding Docker image name based on the provided
-// distribution and architecture.
-// func getImageName(distro, arch string) string {
-// 	switch distro {
-// 	case "ubuntu":
-// 		if arch == "arm64" {
-// 			return "arm64v8/ubuntu"
-// 		}
-// 		return "ubuntu"
-// 	case "arch":
-// 		return "archlinux"
-// 	default:
-// 		return "archlinux"
-// 	}
-// }
-
-// The function `getPlatform` returns the corresponding platform based on the input architecture
-// string.
 func getPlatform(arch string) string {
 	if arch == "arm64" {
 		return "linux/arm64"
@@ -276,7 +241,7 @@ func (dm *SoFinder) getLddOutput(soFilePath string) error {
 	return dm.execCommand(lddCmd)
 }
 
-func (dm *SoFinder) findAndDownloadPackage(soFileName string) (string, error) {
+func (dm *SoFinder) downloadPackage(soFileName string) (string, error) {
 	var packageCmd string
 	if dm.distro == "arch" {
 		packageCmd = fmt.Sprintf("pkgfile -s %s | awk -F'/' '{print $1}'", soFileName)
@@ -314,10 +279,9 @@ func (dm *SoFinder) findAndDownloadPackage(soFileName string) (string, error) {
 		return "", fmt.Errorf("failed to download package %s: %w", packageName, err)
 	}
 
-	// Ensure the package file exists and copy it to the archive directory
-	existCmd := fmt.Sprintf("test -f %s", packageFilePath)
-	err = dm.execCommand(existCmd)
-	if err != nil {
+	existCmd := fmt.Sprintf("find /so_files_archive -name %s", filepath.Base(packageFilePath))
+	output, err := dm.execCommandOutput(existCmd)
+	if err != nil || strings.TrimSpace(output) == "" {
 		return "", fmt.Errorf("package file %s does not exist: %w", packageFilePath, err)
 	}
 
@@ -342,7 +306,7 @@ func (dm *SoFinder) findAndDownloadPackage(soFileName string) (string, error) {
 	}
 
 	// Handle the symlink case: resolve and copy the actual .so file, then rename it
-	finalSOFilePath, err := dm.copyAndRenameSOFile(soFileName)
+	finalSOFilePath, err := dm.findAndCopyLocalSoFile(soFileName, "/so_files_archive")
 	if err != nil {
 		return "", fmt.Errorf("failed to copy and rename .so file: %w", err)
 	}
@@ -350,12 +314,12 @@ func (dm *SoFinder) findAndDownloadPackage(soFileName string) (string, error) {
 	return finalSOFilePath, nil
 }
 
-func (dm *SoFinder) copyAndRenameSOFile(soFileName string) (string, error) {
+func (dm *SoFinder) findAndCopyLocalSoFile(soFileName, searchPath string) (string, error) {
 	// Search for the .so file in the extracted directories
-	searchCmd := fmt.Sprintf("find /so_files_archive -name %s", soFileName)
+	searchCmd := fmt.Sprintf("find %s -name %s|head -1", searchPath, soFileName)
 	soFilePath, err := dm.execCommandOutput(searchCmd)
 	if err != nil {
-		return "", fmt.Errorf("failed to find %s in /so_files_archive: %w", soFileName, err)
+		return "", fmt.Errorf("failed to find %s in %s: %w", searchPath, soFileName, err)
 	}
 	soFilePath = cleanAptFileOutput(strings.TrimSpace(soFilePath))
 

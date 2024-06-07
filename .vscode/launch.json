@@ -6,7 +6,7 @@
             "request": "launch",
             "mode": "auto",
             "args": [
-                "libvulkan.so.1",
+                "libvulkan.so.1,ld.so,libc.so.6,libdl.so.2,libm.so.6,libgcc_s.so.1",
                 "x86_64",
                 "ubuntu",
                 "./libs"
