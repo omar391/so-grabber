@@ -38,7 +38,7 @@ When running binaries that depend on specific shared libraries, missing dependen
 ### Usage
 
 ```sh
-./sofinder <so-file-names> [architecture: x86_64|arm64] [distro: ubuntu|arch] [output-directory] [remove-container]
+./sofinder <so-file-names> [architecture: x86_64|arm64] [distro: ubuntu variant distro] [output-directory] [remove-container]
 ```
 
 ### Example
