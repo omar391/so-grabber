@@ -239,7 +239,8 @@ func (dm *SoFinder) installUbuntuPackages() error {
 }
 
 func (dm *SoFinder) getLddOutput(soFilePath string) error {
-	lddCmd := fmt.Sprintf("ldd %s > /so_files_archive/ldd_output.txt", soFilePath)
+	// create so_files_archive if doesn't exist
+	lddCmd := fmt.Sprintf("mkdir -p /so_files_archive/ && ldd %s > /so_files_archive/ldd_output.txt", soFilePath)
 	return dm.execCommand(lddCmd)
 }
 
@@ -327,6 +328,7 @@ func (dm *SoFinder) execCommand(cmd string) error {
 		Cmd:          []string{"/bin/sh", "-c", cmd},
 		AttachStdout: true,
 		AttachStderr: true,
+		WorkingDir: "/",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create exec: %w", err)
