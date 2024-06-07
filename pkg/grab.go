@@ -64,34 +64,22 @@ func NewSoFinder(arch, distroWithTag, outputDir, containerName string, remove bo
 }
 
 func (dm *SoFinder) Collect(soFileNames ...string) error {
-	containerID, err := dm.findExistingContainer()
+	containerID, err := dm.findOrCreateContainer()
 	if err != nil {
-		return fmt.Errorf("failed to find existing container: %w", err)
+		return fmt.Errorf("failed to find or create container: %w", err)
 	}
-
-	if containerID == "" {
-		containerID, err = dm.createContainer()
-		if err != nil {
-			return fmt.Errorf("failed to create container: %w", err)
-		}
-		dm.containerID = containerID
-	} else {
-		dm.containerID = containerID
-	}
+	dm.containerID = containerID
 
 	if err := dm.cli.ContainerStart(dm.ctx, dm.containerID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Install necessary packages based on distro
-	err = dm.installUbuntuPackages()
-	if err != nil {
+	if err := dm.installUbuntuPackages(); err != nil {
 		return fmt.Errorf("failed to install packages: %w", err)
 	}
 
-	err = dm.checkAndDownloadDependencies(soFileNames)
-	if err != nil {
-		return fmt.Errorf("failed to find or download so libs. err: %w", err)
+	if err := dm.checkAndDownloadDependencies(soFileNames); err != nil {
+		return fmt.Errorf("failed to find or download so libs: %w", err)
 	}
 
 	if dm.remove {
@@ -104,37 +92,30 @@ func (dm *SoFinder) Collect(soFileNames ...string) error {
 }
 
 func (dm *SoFinder) processLddDependencies(soFilePath string) error {
-	// Get the ldd output
-	// TODO: read into string rather than into file
-	err := dm.getLddOutput(soFilePath)
-	if err != nil {
+	if err := dm.getLddOutput(soFilePath); err != nil {
 		return fmt.Errorf("failed to run ldd on %s: %w", soFilePath, err)
 	}
 
-	// Read the ldd output to find all dependencies
 	content, _, err := dm.cli.CopyFromContainer(dm.ctx, dm.containerID, "/so_files_archive/ldd_output.txt")
 	if err != nil {
 		return fmt.Errorf("failed to copy ldd output from container: %w", err)
 	}
+
 	lddOutput, err := extractLddOutput(content)
 	if err != nil {
 		return fmt.Errorf("failed to extract ldd output: %w", err)
 	}
 
-	// Check and download all dependencies
-	err = dm.checkAndDownloadDependencies(lddOutput)
-	if err != nil {
+	if err := dm.checkAndDownloadDependencies(lddOutput); err != nil {
 		return fmt.Errorf("failed to check and download dependencies: %w", err)
 	}
 
-	// Copy the collected .so files from the container to the host
 	content, _, err = dm.cli.CopyFromContainer(dm.ctx, dm.containerID, dm.outputDir)
 	if err != nil {
 		return fmt.Errorf("failed to copy files from container: %w", err)
 	}
 
-	err = extractTar(content, getRootFolder(dm.outputDir))
-	if err != nil {
+	if err := extractTar(content, getRootFolder(dm.outputDir)); err != nil {
 		return fmt.Errorf("failed to extract files: %w", err)
 	}
 
@@ -147,26 +128,34 @@ func (dm *SoFinder) checkAndDownloadDependencies(dependencies []string) error {
 		if _, ok := dm.output[depPath]; ok {
 			continue
 		}
+
 		soFilePath, err := dm.findAndCopyLocalSoFile(depPath, "/")
 		if err != nil {
-			fmt.Printf("Dependency %s not found, try to download from apt sources...\n", depPath)
-			// If the dependency is not found, download it
+			fmt.Printf("Dependency %s not found, trying to download from apt sources...\n", depPath)
 			soFilePath, err = dm.downloadPackage(depPath)
 			if err != nil {
-				return fmt.Errorf("warning: failed to download dependency %s: %v", depPath, err)
+				return fmt.Errorf("failed to download dependency %s: %v", depPath, err)
 			}
 		}
 
-		// store this so file
 		dm.output[depPath] = soFilePath
 
-		// process nested LDD dependencies
-		err = dm.processLddDependencies(soFilePath)
-		if err != nil {
-			return fmt.Errorf("warning: failed to process LDD dependency %s: %v", depPath, err)
+		if err := dm.processLddDependencies(soFilePath); err != nil {
+			return fmt.Errorf("failed to process LDD dependency %s: %v", depPath, err)
 		}
 	}
 	return nil
+}
+
+func (dm *SoFinder) findOrCreateContainer() (string, error) {
+	containerID, err := dm.findExistingContainer()
+	if err != nil {
+		return "", err
+	}
+	if containerID != "" {
+		return containerID, nil
+	}
+	return dm.createContainer()
 }
 
 func (dm *SoFinder) findExistingContainer() (string, error) {
@@ -185,38 +174,17 @@ func (dm *SoFinder) findExistingContainer() (string, error) {
 func (dm *SoFinder) createContainer() (string, error) {
 	img := dm.distro + ":" + dm.tag
 
-	// Check if the image exists locally
-	images, err := dm.cli.ImageList(dm.ctx, image.ListOptions{})
+	imageExists, err := dm.checkImageExists(img)
 	if err != nil {
-		return "", fmt.Errorf("failed to list images: %w", err)
+		return "", err
 	}
 
-	imageExists := false
-	for _, image := range images {
-		for _, tag := range image.RepoTags {
-			if tag == img {
-				imageExists = true
-				break
-			}
-		}
-		if imageExists {
-			break
-		}
-	}
-
-	// Pull the image only if it doesn't exist locally
 	if !imageExists {
-		reader, err := dm.cli.ImagePull(dm.ctx, img, image.PullOptions{
-			Platform: getPlatform(dm.arch),
-		})
-		if err != nil {
-			return "", fmt.Errorf("failed to pull image %s: %w", img, err)
+		if err := dm.pullImage(img); err != nil {
+			return "", err
 		}
-		defer reader.Close()
-		io.Copy(os.Stdout, reader)
 	}
 
-	// Create the container
 	resp, err := dm.cli.ContainerCreate(dm.ctx, &container.Config{
 		Image: img,
 		Cmd:   []string{"/bin/sh", "-c", "while :; do sleep 1; done"},
@@ -226,6 +194,33 @@ func (dm *SoFinder) createContainer() (string, error) {
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 	return resp.ID, nil
+}
+
+func (dm *SoFinder) checkImageExists(img string) (bool, error) {
+	images, err := dm.cli.ImageList(dm.ctx, image.ListOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to list images: %w", err)
+	}
+	for _, image := range images {
+		for _, tag := range image.RepoTags {
+			if tag == img {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func (dm *SoFinder) pullImage(img string) error {
+	reader, err := dm.cli.ImagePull(dm.ctx, img, image.PullOptions{
+		Platform: getPlatform(dm.arch),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to pull image %s: %w", img, err)
+	}
+	defer reader.Close()
+	_, err = io.Copy(os.Stdout, reader)
+	return err
 }
 
 func getPlatform(arch string) string {
@@ -260,53 +255,21 @@ func (dm *SoFinder) downloadPackage(soFileName string) (string, error) {
 		return "", fmt.Errorf("package for %s not found", soFileName)
 	}
 
-	var downloadCmd, packageFilePath, copyCmd string
-	downloadCmd = fmt.Sprintf("apt-get download %s", packageName)
-	packageFilePath = fmt.Sprintf("/%s_*.deb", packageName)
-	copyCmd = fmt.Sprintf("cp %s /so_files_archive/", packageFilePath)
-
-	err = dm.execCommand("mkdir -p /so_files_archive")
-	if err != nil {
-		return "", fmt.Errorf("failed to create archive directory: %w", err)
-	}
-
-	err = dm.execCommand(downloadCmd)
-	if err != nil {
+	downloadCmd := fmt.Sprintf("apt-get download %s", packageName)
+	if err := dm.execCommand(downloadCmd); err != nil {
 		return "", fmt.Errorf("failed to download package %s: %w", packageName, err)
 	}
 
-	existCmd := fmt.Sprintf("find /so_files_archive -name %s", filepath.Base(packageFilePath))
-	output, err := dm.execCommandOutput(existCmd)
-	if err != nil || strings.TrimSpace(output) == "" {
-		return "", fmt.Errorf("package file %s does not exist: %w", packageFilePath, err)
-	}
-
-	err = dm.execCommand(copyCmd)
-	if err != nil {
-		return "", fmt.Errorf("failed to copy package file %s: %w", packageFilePath, err)
-	}
-
-	// Extract the copied package file from the archive directory
-	var extractCmd string
-	packageFilePath = fmt.Sprintf("/so_files_archive/%s_*.deb", packageName)
-	extractCmd = fmt.Sprintf("dpkg-deb -xv %s /so_files_archive", packageFilePath)
-
-	err = dm.execCommand(extractCmd)
-	if err != nil {
+	packageFilePath := fmt.Sprintf("/%s_*.deb", packageName)
+	extractCmd := fmt.Sprintf("dpkg-deb -xv %s /so_files_archive", packageFilePath)
+	if err := dm.execCommand(extractCmd); err != nil {
 		return "", fmt.Errorf("failed to extract package %s: %w", packageName, err)
 	}
 
-	// Handle the symlink case: resolve and copy the actual .so file, then rename it
-	finalSOFilePath, err := dm.findAndCopyLocalSoFile(soFileName, "/so_files_archive")
-	if err != nil {
-		return "", fmt.Errorf("failed to copy and rename .so file: %w", err)
-	}
-
-	return finalSOFilePath, nil
+	return dm.findAndCopyLocalSoFile(soFileName, "/so_files_archive")
 }
 
 func (dm *SoFinder) findAndCopyLocalSoFile(soFileName, searchPath string) (string, error) {
-	// Search for the .so file in the extracted directories
 	searchCmd := fmt.Sprintf("find %s -name %s|head -1", searchPath, soFileName)
 	soFilePath, err := dm.execCommandOutput(searchCmd)
 	if err != nil {
@@ -314,7 +277,6 @@ func (dm *SoFinder) findAndCopyLocalSoFile(soFileName, searchPath string) (strin
 	}
 	soFilePath = cleanAptFileOutput(strings.TrimSpace(soFilePath))
 
-	// Resolve the symlink if it is a symlink
 	resolveCmd := fmt.Sprintf("readlink -f %s", soFilePath)
 	resolvedPath, err := dm.execCommandOutput(resolveCmd)
 	if err != nil {
@@ -322,32 +284,25 @@ func (dm *SoFinder) findAndCopyLocalSoFile(soFileName, searchPath string) (strin
 	}
 	resolvedPath = cleanAptFileOutput(strings.TrimSpace(resolvedPath))
 
-	// create the output directory if it doesn't exist
 	err = dm.execCommand("mkdir -p " + dm.outputDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	// Copy the .so file to the output directory
 	finalSOFilePath := fmt.Sprintf("%s/%s", dm.outputDir, soFileName)
 	copyCmd := fmt.Sprintf("cp %s %s", resolvedPath, finalSOFilePath)
-	err = dm.execCommand(copyCmd)
-	if err != nil {
+	if err := dm.execCommand(copyCmd); err != nil {
 		return "", fmt.Errorf("failed to copy .so file from %s to %s: %w", resolvedPath, dm.outputDir, err)
 	}
 
 	return finalSOFilePath, nil
 }
 
-// The cleanAptFileOutput function removes non-printable characters and extra whitespace from a given
-// string.
 func cleanAptFileOutput(output string) string {
-	// Remove everything up to the first forward slash
 	if idx := strings.Index(output, "/"); idx != -1 {
 		output = output[idx:]
 	}
 
-	// Remove non-printable characters and extra whitespace
 	cleaned := strings.Map(func(r rune) rune {
 		if r < ' ' || r > '~' {
 			return -1
@@ -360,8 +315,7 @@ func cleanAptFileOutput(output string) string {
 
 func (dm *SoFinder) execCommands(cmds []string) error {
 	for _, cmd := range cmds {
-		err := dm.execCommand(cmd)
-		if err != nil {
+		if err := dm.execCommand(cmd); err != nil {
 			return err
 		}
 	}
@@ -422,9 +376,6 @@ func (dm *SoFinder) execCommandOutput(cmd string) (string, error) {
 	return buf.String(), nil
 }
 
-// The function `extractLddOutput` reads a tar archive, extracts the contents of a file named
-// "ldd_output.txt", parses the dependencies listed in the file, and returns them as a slice of
-// strings.
 func extractLddOutput(tarContent io.Reader) ([]string, error) {
 	var deps []string
 	tarReader := tar.NewReader(tarContent)
@@ -440,8 +391,7 @@ func extractLddOutput(tarContent io.Reader) ([]string, error) {
 
 		if header.Name == "ldd_output.txt" {
 			buf := new(bytes.Buffer)
-			_, err = io.Copy(buf, tarReader)
-			if err != nil {
+			if _, err := io.Copy(buf, tarReader); err != nil {
 				return nil, fmt.Errorf("failed to read ldd output: %w", err)
 			}
 
@@ -458,8 +408,6 @@ func extractLddOutput(tarContent io.Reader) ([]string, error) {
 	return deps, nil
 }
 
-// The `extractTar` function reads a tar archive from an `io.Reader` and extracts its contents to a
-// specified destination directory.
 func extractTar(tarContent io.Reader, dest string) error {
 	tarReader := tar.NewReader(tarContent)
 	for {
@@ -496,7 +444,6 @@ func getRootFolder(path string) string {
 	parts := strings.Split(filepath.ToSlash(path), "/")
 	if parts[0] == "" {
 		return parts[1]
-	} else {
-		return strings.Join(parts[:len(parts)-1], "/")
 	}
+	return strings.Join(parts[:len(parts)-1], "/")
 }
